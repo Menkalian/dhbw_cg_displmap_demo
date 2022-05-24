@@ -2,18 +2,20 @@
 
 layout (location = 0) in vec3  inPos;
 layout (location = 1) in vec3  inNormal;
-layout (location = 2) in float inHeight;
-layout (location = 3) in vec2  inTexCoords;
-layout (location = 4) in vec3  inTangent;
-layout (location = 5) in vec3  inBitangent;
+layout (location = 2) in vec2  inTexCoords;
+layout (location = 3) in vec3  inTangent;
+layout (location = 4) in vec3  inBitangent;
 
 out VS_OUT {
     vec3 fragPos;
+    vec3 fragNormal;
     vec2 texCoords;
     vec3 tangentLightPos;
     vec3 tangentViewPos;
     vec3 tangentFragPos;
 } vs_out;
+
+uniform sampler2D heightMap;
 
 uniform mat4 projection;
 uniform mat4 view;
@@ -22,9 +24,16 @@ uniform mat4 model;
 uniform vec3 lightPos;
 uniform vec3 viewPos;
 
+const float heightScale = 0.1;
+
 void main() {
-    vs_out.fragPos = vec3(model * vec4(inPos, 1.0)); // TODO: Add normal * height;
     vs_out.texCoords = inTexCoords;
+
+    float height =  texture(heightMap, vs_out.texCoords).r;
+    vec3 displaced_vertex = inPos + heightScale * height * inNormal;
+
+    vs_out.fragPos = vec3(model * vec4(displaced_vertex, 1.0));
+    vs_out.fragNormal = vec3(model * vec4(inNormal, 1.0));
 
     mat3 normalMatrix = transpose(inverse(mat3(model)));
     vec3 adaptedTangent = normalize(normalMatrix * inTangent);
@@ -37,5 +46,5 @@ void main() {
     vs_out.tangentViewPos = TBN * viewPos;
     vs_out.tangentFragPos = TBN * vs_out.fragPos;
 
-    gl_Position = projection * view * model * vec4(inPos, 1.0);
+    gl_Position = projection * view * model * vec4(displaced_vertex, 1.0);
 }

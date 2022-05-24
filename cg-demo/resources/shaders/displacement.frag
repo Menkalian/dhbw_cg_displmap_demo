@@ -2,8 +2,9 @@
 
 out vec4 Color;
 
-out VS_OUT {
+in VS_OUT {
     vec3 fragPos;
+    vec3 fragNormal;
     vec2 texCoords;
     vec3 tangentLightPos;
     vec3 tangentViewPos;
@@ -37,7 +38,7 @@ void main() {
     vec3 reflectDir = reflect(-lightDir, normal);
     vec3 halfwayDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), 32.0);
-
     vec3 specular = vec3(0.2) * spec;
+
     Color = vec4(ambient + diffuse + specular, 1.0);
 }
