@@ -31,9 +31,9 @@ const MAX_X: f32 = 1.0;
 const MIN_Y: f32 = -1.0;
 const MAX_Y: f32 = 1.0;
 
-const SAMPLE_STEPS_X: [f32; 6] = [2.0, 4.0, 16.0, 64.0, 256.0, 1024.0];
-const SAMPLE_STEPS_Y: [f32; 6] = [2.0, 4.0, 16.0, 64.0, 256.0, 1024.0];
-const SAMPLE_START_IDX: usize = 0;
+const SAMPLE_STEPS_X: [f32; 7] = [2.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 2048.0];
+const SAMPLE_STEPS_Y: [f32; 7] = [2.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 2048.0];
+const SAMPLE_START_IDX: usize = 3;
 
 ///
 /// Function that is executed when starting the compiled program
