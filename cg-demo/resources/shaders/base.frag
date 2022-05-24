@@ -20,7 +20,6 @@ uniform vec3 viewPos;
 
 void main() {
     vec3 normal = fs_in.fragNormal;
-    normal = normalize(normal * 2.0 - 1.0);
 
     // Base color
     vec3 color = texture(baseMap, fs_in.texCoords).rgb;
