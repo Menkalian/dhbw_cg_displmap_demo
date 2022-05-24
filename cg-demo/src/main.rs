@@ -7,7 +7,7 @@ use std::path::Path;
 
 use cgmath::{Matrix4, Vector3};
 use gl::types::GLuint;
-use log::{debug, info, Level};
+use log::{debug, info, Level, warn};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::video::WindowBuildError;
@@ -68,8 +68,10 @@ fn main() {
 
     // init immutable data
     let demo_texture = TextureCollection::from_resources(&res, "textures/wall", "jpg").unwrap();
-    let light_pos: Vector3<f32> = cgmath::vec3(0.0, 0.0, 1.0);
+    let light_pos: Vector3<f32> = cgmath::vec3(1.0, 1.0, 1.0);
     let model_trans: Matrix4<f32> = cgmath::One::one(); // no transformation for the displayed model; only the camera changes
+
+    log_instructions();
 
     let mut event_stream = sdl.event_pump().unwrap();
     loop {
@@ -95,12 +97,15 @@ fn main() {
         TextureCollection::configure_program(&state.current_program().unwrap());
         demo_texture.set_active();
 
-        state.current_program().unwrap().set_property_mat4("projection", &proj);
-        state.current_program().unwrap().set_property_mat4("view", &view);
-        state.current_program().unwrap().set_property_mat4("model", &model_trans);
+        // We can only borrow the value here, so the `set_active`-call needs to retrieve it manually
+        let current_program = state.current_program().unwrap();
 
-        state.current_program().unwrap().set_property_vec3("viewPos", &pos);
-        state.current_program().unwrap().set_property_vec3("lightPos", &light_pos);
+        current_program.set_property_mat4("projection", &proj);
+        current_program.set_property_mat4("view", &view);
+        current_program.set_property_mat4("model", &model_trans);
+
+        current_program.set_property_vec3("viewPos", &pos);
+        current_program.set_property_vec3("lightPos", &light_pos);
 
         unsafe {
             gl::BindVertexArray(state.vao_id);
@@ -259,6 +264,27 @@ fn handle_event(state: &mut AppState, event: Event) {
         Event::MouseWheel { y, .. } => state.camera.zoom_camera(y as f32),
         _ => {} // do nothing for unhandled events
     }
+}
+
+fn log_instructions() {
+    // Instructions for using
+    warn!(target: "INSTRUCTIONS", r#"
+    Controls:
+     - ESC           => Quit
+     - '+'           => Increase model vertices
+     - '-'           => Decrease model vertices
+     - W/UP          => Move forward
+     - A/LEFT        => Move left
+     - S/DOWN        => Move backward
+     - S/RIGHT       => Move right
+     - Space/PgUp    => Move up
+     - Ctrl/PgDown   => Move down
+     - Pos1/KeyPad0  => Reset camera
+     - M             => Cycle shaders
+
+    Use the mouse to look around.
+    Scroll to zoom.
+    "#);
 }
 
 /// # AppState
