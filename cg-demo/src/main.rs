@@ -7,7 +7,7 @@ use std::path::Path;
 
 use cgmath::{Matrix4, Vector3};
 use gl::types::GLuint;
-use log::{info, Level};
+use log::{debug, info, Level};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::video::WindowBuildError;
@@ -342,15 +342,18 @@ impl AppState {
 
     pub fn increase_samples(&mut self) {
         self.samples_idx = (self.samples_idx + 1).clamp(0, SAMPLE_STEPS_X.len() - 1);
+        info!(target: LOG_TARGET, "Using sample amount {}: {}x{}", self.samples_idx, SAMPLE_STEPS_X[self.samples_idx], SAMPLE_STEPS_Y[self.samples_idx]);
         self.refresh_vbo();
     }
 
     pub fn decrease_samples(&mut self) {
         if self.samples_idx == 0 {
+            debug!("Sample amount could not be decreased");
             return;
         }
 
         self.samples_idx = (self.samples_idx - 1).clamp(0, SAMPLE_STEPS_X.len() - 1);
+        info!(target: LOG_TARGET, "Using sample amount {}: {}x{}", self.samples_idx, SAMPLE_STEPS_X[self.samples_idx], SAMPLE_STEPS_Y[self.samples_idx]);
         self.refresh_vbo();
     }
 

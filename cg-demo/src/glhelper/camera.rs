@@ -1,5 +1,5 @@
 use cgmath::InnerSpace;
-use log::{debug, info, trace};
+use log::{info, trace};
 
 use crate::glhelper::utils::calc_look_at_matrix;
 
@@ -94,7 +94,7 @@ impl Camera {
     /// Moves the camera in the given direction
     pub fn move_camera(&mut self, dir: MovementDirection, amount: f32) {
         let v = self.movement_speed * amount;
-        debug!(target: LOG_TARGET, "Moving {:?} by {} units", dir, v);
+        trace!(target: LOG_TARGET, "Moving {:?} by {} units", dir, v);
 
         match dir {
             MovementDirection::FORWARD => {
@@ -122,7 +122,7 @@ impl Camera {
 
     /// Rotates the camera by the given amount
     pub fn rotate_camera(&mut self, horiz_amount: f32, vert_amount: f32) {
-        debug!(target: LOG_TARGET, "Rotating by {}° horizontally and {}° vertically.",
+        trace!(target: LOG_TARGET, "Rotating by {}° horizontally and {}° vertically.",
             horiz_amount * self.mouse_sens, vert_amount* self.mouse_sens);
 
         self.yaw = self.yaw + horiz_amount * self.mouse_sens;
@@ -133,7 +133,7 @@ impl Camera {
 
     /// Zooms the camera by the given amount
     pub fn zoom_camera(&mut self, delta: f32) {
-        debug!(target: LOG_TARGET, "Zooming by {}°.", delta);
+        trace!(target: LOG_TARGET, "Zooming by {}°.", delta);
         self.zoom = (self.zoom - delta).clamp(10.0, 60.0);
         trace!(target: LOG_TARGET, "New zoom: {}°", self.zoom);
     }
