@@ -19,7 +19,7 @@ uniform vec3 lightPos;
 uniform vec3 viewPos;
 
 void main() {
-    vec3 normal = fs_in.fragNormal;
+    vec3 normal = texture(normalMap, fs_in.texCoords).rgb;
     normal = normalize(normal * 2.0 - 1.0);
 
     // Base color
