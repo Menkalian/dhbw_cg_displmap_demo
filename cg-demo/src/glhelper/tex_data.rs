@@ -1,5 +1,5 @@
 use gl::types::{GLenum, GLuint};
-use log::{debug, info, trace};
+use log::{info, trace};
 
 use crate::glhelper::utils::load_texture_from_path;
 use crate::Resources;

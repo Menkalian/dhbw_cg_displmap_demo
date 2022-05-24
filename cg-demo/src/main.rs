@@ -1,24 +1,26 @@
 extern crate cgmath;
 extern crate gl;
-extern crate sdl2;
 extern crate image;
+extern crate sdl2;
 
 use std::path::Path;
 
 use cgmath::{Matrix4, Vector3};
-use log::Level;
+use gl::types::GLuint;
+use log::{info, Level};
+use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::video::WindowBuildError;
 use sdl2::VideoSubsystem;
 
-use resources::Resources;
-
-use crate::glhelper::Camera;
-use crate::glhelper::MovementDirection::{BACKWARD, FORWARD, LEFT, RIGHT};
-use crate::glhelper::TextureCollection;
+use crate::glhelper::{Camera, MovementDirection::{BACKWARD, FORWARD, LEFT, RIGHT}, Program, TextureCollection, utils::{calc_projection_matrix, configure_vao, fill_vbo}};
+use crate::glhelper::MovementDirection::{DOWN, UP};
+use crate::resources::Resources;
 
 pub mod glhelper;
 pub mod resources;
+
+const LOG_TARGET: &str = "Main";
 
 const WINDOW_TITLE: &str = "Displacement Map Demo";
 const WINDOW_WIDTH: u32 = 900;
@@ -62,75 +64,22 @@ fn main() {
 
     // Load shader
     let res = Resources::from_relative_exe_path(Path::new("resources")).unwrap();
-    let shader_program = glhelper::Program::from_res(&res, "shaders/normal").unwrap();
-    shader_program.set_active();
+    let mut state = AppState::new(&res).unwrap();
 
-    // Load texture
-    TextureCollection::configure_program(&shader_program);
+    // init immutable data
     let demo_texture = TextureCollection::from_resources(&res, "textures/wall", "jpg").unwrap();
-    demo_texture.set_active();
-
-    let mut camera = Camera::new();
-
-    // Generate initial data
-    let mut sample_idx = SAMPLE_START_IDX;
-    let mut vertices: Vec<f32> = Vec::new();
-    let mut point_count: u32;
-    let mut vbo: gl::types::GLuint = 0;
-
-    // init static data
     let light_pos: Vector3<f32> = cgmath::vec3(0.0, 0.0, 1.0);
     let model_trans: Matrix4<f32> = cgmath::One::one(); // no transformation for the displayed model; only the camera changes
 
-    unsafe {
-        gl::GenBuffers(1, &mut vbo);
-    }
-
-    point_count = generate_verticies(sample_idx, &mut vertices);
-    fill_vbo(vbo, &vertices);
-    let vao = configure_vao(vbo);
-
     let mut event_stream = sdl.event_pump().unwrap();
-    'main: loop {
+    loop {
         for event in event_stream.poll_iter() {
-            // Input handling
-            match event {
-                sdl2::event::Event::Quit { .. } => break 'main,
-                sdl2::event::Event::KeyDown { keycode, .. } => {
-                    match keycode.unwrap_or_else(|| Keycode::F24) { // Match unknown keys to the (unused) F24-Key
-                        Keycode::Plus | Keycode::KpPlus => {
-                            sample_idx = (sample_idx + 1).clamp(0, SAMPLE_STEPS_X.len() - 1);
-                            point_count = generate_verticies(sample_idx, &mut vertices);
-                            fill_vbo(vbo, &mut vertices)
-                        }
-                        Keycode::Minus | Keycode::KpMinus => {
-                            sample_idx = (sample_idx.max(1) - 1).clamp(0, SAMPLE_STEPS_X.len() - 1);
-                            point_count = generate_verticies(sample_idx, &mut vertices);
-                            fill_vbo(vbo, &vertices)
-                        }
-                        Keycode::W | Keycode::Up => {
-                            camera.move_camera(FORWARD, 0.1)
-                        }
-                        Keycode::A | Keycode::Left => {
-                            camera.move_camera(LEFT, 0.1)
-                        }
-                        Keycode::S | Keycode::Down => {
-                            camera.move_camera(BACKWARD, 0.1)
-                        }
-                        Keycode::D | Keycode::Right => {
-                            camera.move_camera(RIGHT, 0.1)
-                        }
-                        Keycode::O | Keycode::Home => {
-                            camera.reset_position()
-                        }
-                        Keycode::Escape => break 'main,
-                        _ => {}
-                    }
-                }
-                sdl2::event::Event::MouseMotion { xrel, yrel, .. } => camera.rotate_camera(xrel as f32, yrel as f32),
-                sdl2::event::Event::MouseWheel { y, .. } => camera.zoom_camera(y as f32),
-                _ => {} // do nothing for unhandled events
-            }
+            handle_event(&mut state, event);
+        }
+
+        // Terminate if necessary
+        if state.should_terminate {
+            break;
         }
 
         // rendering
@@ -138,25 +87,27 @@ fn main() {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
 
-        let proj = build_projection_matrix(camera.zoom().to_radians(), (WINDOW_WIDTH as f32) / (WINDOW_HEIGHT as f32), 0.1, 100.0).unwrap();
+        let proj = calc_projection_matrix(state.camera.zoom().to_radians(), (WINDOW_WIDTH as f32) / (WINDOW_HEIGHT as f32), 0.1, 100.0).unwrap();
+        let view = state.camera.calc_view_matrix();
+        let pos = state.camera.position();
 
-        shader_program.set_active();
-        TextureCollection::configure_program(&shader_program);
+        state.current_program().unwrap().set_active();
+        TextureCollection::configure_program(&state.current_program().unwrap());
         demo_texture.set_active();
 
-        shader_program.set_property_mat4("projection", &proj);
-        shader_program.set_property_mat4("view", &camera.calc_view_matrix());
-        shader_program.set_property_mat4("model", &model_trans);
+        state.current_program().unwrap().set_property_mat4("projection", &proj);
+        state.current_program().unwrap().set_property_mat4("view", &view);
+        state.current_program().unwrap().set_property_mat4("model", &model_trans);
 
-        shader_program.set_property_vec3("viewPos", &camera.position());
-        shader_program.set_property_vec3("lightPos", &light_pos);
+        state.current_program().unwrap().set_property_vec3("viewPos", &pos);
+        state.current_program().unwrap().set_property_vec3("lightPos", &light_pos);
 
         unsafe {
-            gl::BindVertexArray(vao);
+            gl::BindVertexArray(state.vao_id);
             gl::DrawArrays(
                 gl::TRIANGLES,
                 0,
-                point_count as gl::types::GLsizei,
+                state.point_count as gl::types::GLsizei,
             );
         }
 
@@ -165,6 +116,7 @@ fn main() {
     }
 }
 
+/// Creates an SDL Window and configures it for use with OpenGl
 fn configure_and_create_window(video_sys: &VideoSubsystem) -> Result<sdl2::video::Window, WindowBuildError> {
     // Configure OpenGL attributes
     let gl_attr = video_sys.gl_attr();
@@ -178,20 +130,8 @@ fn configure_and_create_window(video_sys: &VideoSubsystem) -> Result<sdl2::video
         .build()
 }
 
-fn fill_vbo(vbo_id: gl::types::GLuint, data: &Vec<f32>) {
-    unsafe {
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo_id);
-        gl::BufferData(
-            gl::ARRAY_BUFFER,
-            (data.len() * std::mem::size_of::<f32>()) as gl::types::GLsizeiptr,
-            data.as_ptr() as *const gl::types::GLvoid,
-            gl::STATIC_DRAW,
-        );
-        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
-    }
-}
-
-fn generate_verticies(samples_idx: usize, buffer: &mut Vec<f32>) -> u32 {
+/// Generates vertices for a square with the given sample-size and stores the VBO-data to the buffer.
+fn generate_vertices(samples_idx: usize, buffer: &mut Vec<f32>) -> u32 {
     // Clear existing data
     buffer.clear();
 
@@ -275,91 +215,148 @@ fn generate_verticies(samples_idx: usize, buffer: &mut Vec<f32>) -> u32 {
     point_count
 }
 
-fn configure_vao(vbo_id: gl::types::GLuint) -> gl::types::GLuint {
-    let mut vao: gl::types::GLuint = 0;
-    unsafe {
-        gl::GenVertexArrays(1, &mut vao);
-
-        gl::BindVertexArray(vao);
-        gl::BindBuffer(gl::ARRAY_BUFFER, vbo_id);
-
-        // Configure the following layout:
-        //   layout (location = 0) in vec3  inPos;
-        //   layout (location = 1) in vec3  inNormal;
-        //   layout (location = 2) in vec2  inTexCoords;
-        //   layout (location = 3) in vec3  inTangent;
-        //   layout (location = 4) in vec3  inBitangent;
-        //
-        // sum of components = 14
-        // since float / f32 is used, all the values are tightly packed
-        let stride = (14 * std::mem::size_of::<f32>()) as gl::types::GLint;
-
-        // Position
-        gl::EnableVertexAttribArray(0);
-        gl::VertexAttribPointer(
-            0,
-            3, gl::FLOAT, gl::FALSE, // amount and type of data
-            stride, std::ptr::null(),
-        );
-
-        // Normal
-        gl::EnableVertexAttribArray(1);
-        gl::VertexAttribPointer(
-            1,
-            3, gl::FLOAT, gl::FALSE,
-            stride, calc_f32_offset(3),
-        );
-
-        // TexCoords
-        gl::EnableVertexAttribArray(2);
-        gl::VertexAttribPointer(
-            2,
-            2, gl::FLOAT, gl::FALSE,
-            stride, calc_f32_offset(6),
-        );
-
-        // Tangent
-        gl::EnableVertexAttribArray(3);
-        gl::VertexAttribPointer(
-            3,
-            3, gl::FLOAT, gl::FALSE,
-            stride, calc_f32_offset(8),
-        );
-
-        // Bi-Tangent
-        gl::EnableVertexAttribArray(4);
-        gl::VertexAttribPointer(
-            4,
-            3, gl::FLOAT, gl::FALSE,
-            stride, calc_f32_offset(11),
-        );
-
-        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
-        gl::BindVertexArray(0);
+fn handle_event(state: &mut AppState, event: Event) {
+    // Input handling
+    match event {
+        Event::Quit { .. } => state.terminate(),
+        Event::KeyDown { keycode, .. } => {
+            match keycode.unwrap_or_else(|| Keycode::F24) { // Match unknown keys to the (unused) F24-Key
+                Keycode::Plus | Keycode::KpPlus => {
+                    state.increase_samples()
+                }
+                Keycode::Minus | Keycode::KpMinus => {
+                    state.decrease_samples()
+                }
+                Keycode::W | Keycode::Up => {
+                    state.camera.move_camera(FORWARD, 0.1)
+                }
+                Keycode::A | Keycode::Left => {
+                    state.camera.move_camera(LEFT, 0.1)
+                }
+                Keycode::S | Keycode::Down => {
+                    state.camera.move_camera(BACKWARD, 0.1)
+                }
+                Keycode::D | Keycode::Right => {
+                    state.camera.move_camera(RIGHT, 0.1)
+                }
+                Keycode::Space | Keycode::PageUp => {
+                    state.camera.move_camera(UP, 0.1)
+                }
+                Keycode::LCtrl | Keycode::PageDown => {
+                    state.camera.move_camera(DOWN, 0.1)
+                }
+                Keycode::Kp0 | Keycode::Home => {
+                    state.camera.reset_position()
+                }
+                Keycode::M => {
+                    state.cycle_programs();
+                }
+                Keycode::Escape => state.terminate(),
+                _ => {}
+            }
+        }
+        Event::MouseMotion { xrel, yrel, .. } => state.camera.rotate_camera(xrel as f32, yrel as f32),
+        Event::MouseWheel { y, .. } => state.camera.zoom_camera(y as f32),
+        _ => {} // do nothing for unhandled events
     }
-
-    vao
 }
 
-fn calc_f32_offset(amount: usize) -> *const gl::types::GLvoid {
-    (amount * std::mem::size_of::<f32>()) as *const gl::types::GLvoid
+/// # AppState
+/// Contains values related to the mutable state of the application
+struct AppState {
+    /// Camera to view the scene
+    camera: Camera,
+
+    /// Flag to terminate the program
+    should_terminate: bool,
+
+    /// Index of the active program/shaders
+    used_program_idx: usize,
+    /// List of available programs/shaders
+    available_programs: Vec<Program>,
+    /// List of readable identifiers for the available programs/shaders
+    available_program_names: Vec<String>,
+
+    /// Index to determine the amount of samples to generate
+    samples_idx: usize,
+
+    /// OpenGL-Id of the VBO
+    vbo_id: GLuint,
+    /// OpenGL-Id of the VAO
+    vao_id: GLuint,
+    /// Current count of vertices
+    point_count: u32,
 }
 
-fn build_projection_matrix(fovy: f32, aspect: f32, z_near: f32, z_far: f32) -> Result<Matrix4<f32>, String> {
-    if aspect == 0.0 {
-        return Err("Aspect ratio may not be 0".to_string());
-    }
-    if z_far == z_near {
-        return Err("z-values may not be the same".to_string());
+impl AppState {
+    /// Initialize the AppState with default values
+    fn new(res: &Resources) -> Result<AppState, String> {
+        let mut state = AppState {
+            camera: Camera::new(),
+            should_terminate: false,
+
+            used_program_idx: 0,
+            available_programs: Vec::new(),
+            available_program_names: Vec::new(),
+
+            samples_idx: SAMPLE_START_IDX,
+
+            vbo_id: 0,
+            vao_id: 0,
+            point_count: 0,
+        };
+
+        // Load and initialize programs
+        state.available_program_names.push("Kein Mapping".to_string());
+        state.available_programs.push(
+            Program::from_res(res, "shaders/base")
+                .map_err(|s| s)?);
+
+        state.available_program_names.push("Normal-Mapping".to_string());
+        state.available_programs.push(
+            Program::from_res(res, "shaders/normal")
+                .map_err(|s| s)?);
+
+        // Init buffers
+        unsafe {
+            gl::GenBuffers(1, &mut state.vbo_id);
+        }
+        state.refresh_vbo();
+        state.vao_id = configure_vao(state.vbo_id);
+
+        Ok(state)
     }
 
-    let tan_half_fovy = (fovy / 2.0).tan();
-    let mut result: Matrix4<f32> = cgmath::Zero::zero();
-    result.x.x = 1.0 / (aspect * tan_half_fovy);
-    result.y.y = 1.0 / tan_half_fovy;
-    result.z.z = -1.0 * (z_far + z_near) / (z_far - z_near);
-    result.z.w = -1.0;
-    result.w.z = (-2.0 * z_far * z_near) / (z_far - z_near);
+    pub fn terminate(&mut self) {
+        self.should_terminate = true;
+    }
 
-    Ok(result)
+    pub fn cycle_programs(&mut self) {
+        self.used_program_idx = (self.used_program_idx + 1) % self.available_programs.len();
+        info!(target: LOG_TARGET, "Using program {}: \"{}\"", self.used_program_idx, self.available_program_names.get(self.used_program_idx).unwrap());
+    }
+
+    pub fn current_program(&mut self) -> Option<&mut Program> {
+        self.available_programs.get_mut(self.used_program_idx)
+    }
+
+    pub fn increase_samples(&mut self) {
+        self.samples_idx = (self.samples_idx + 1).clamp(0, SAMPLE_STEPS_X.len() - 1);
+        self.refresh_vbo();
+    }
+
+    pub fn decrease_samples(&mut self) {
+        if self.samples_idx == 0 {
+            return;
+        }
+
+        self.samples_idx = (self.samples_idx - 1).clamp(0, SAMPLE_STEPS_X.len() - 1);
+        self.refresh_vbo();
+    }
+
+    fn refresh_vbo(&mut self) {
+        let mut vertices = Vec::new();
+        self.point_count = generate_vertices(self.samples_idx, &mut vertices);
+        fill_vbo(self.vbo_id, &vertices);
+    }
 }

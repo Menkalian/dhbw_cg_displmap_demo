@@ -5,7 +5,7 @@ pub mod program;
 pub mod shader;
 pub mod tex_collection;
 pub mod tex_data;
-mod utils;
+pub mod utils;
 
 pub use camera::{
     MovementDirection,

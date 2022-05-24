@@ -1,7 +1,7 @@
 use std::ffi::{CStr, CString};
 
 use cgmath::{InnerSpace, Matrix4, Vector3};
-use gl::types::{GLchar, GLuint};
+use gl::types::{GLchar, GLuint, GLvoid};
 
 /// Compiles shader source code and loads them in OpenGL
 pub fn compile_shader_from_source(source: &CStr, kind: GLuint) -> Result<GLuint, String> {
@@ -98,6 +98,26 @@ pub fn calc_look_at_matrix(eye_pos: Vector3<f32>, target: Vector3<f32>, up: Vect
     result
 }
 
+/// Calculates a projection matrix with the given fovy and near/far planes
+pub fn calc_projection_matrix(fovy: f32, aspect: f32, z_near: f32, z_far: f32) -> Result<Matrix4<f32>, String> {
+    if aspect == 0.0 {
+        return Err("Aspect ratio may not be 0".to_string());
+    }
+    if z_far == z_near {
+        return Err("z-values may not be the same".to_string());
+    }
+
+    let tan_half_fovy = (fovy / 2.0).tan();
+    let mut result: Matrix4<f32> = cgmath::Zero::zero();
+    result.x.x = 1.0 / (aspect * tan_half_fovy);
+    result.y.y = 1.0 / tan_half_fovy;
+    result.z.z = -1.0 * (z_far + z_near) / (z_far - z_near);
+    result.z.w = -1.0;
+    result.w.z = (-2.0 * z_far * z_near) / (z_far - z_near);
+
+    Ok(result)
+}
+
 /// Formats texture paths as `{name}_{type}.{ext}` to allow loading belonging textures at once
 pub fn format_texture_path(texture_name: &str, texture_type: &str, extension: &str) -> String {
     format!("{}_{}.{}", texture_name, texture_type, extension)
@@ -109,4 +129,90 @@ pub fn create_whitespace_cstring_with_len(len: usize) -> CString {
     let mut buffer: Vec<u8> = Vec::with_capacity(len as usize + 1);
     buffer.extend([b' '].iter().cycle().take(len as usize));
     unsafe { CString::from_vec_unchecked(buffer) }
+}
+
+/// Copies the given data to the VBO
+pub fn fill_vbo(vbo_id: GLuint, data: &Vec<f32>) {
+    unsafe {
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo_id);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            (data.len() * std::mem::size_of::<f32>()) as gl::types::GLsizeiptr,
+            data.as_ptr() as *const GLvoid,
+            gl::STATIC_DRAW,
+        );
+        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
+    }
+}
+
+/// Configures the VAO for the used layout and assigns it to the VBO
+pub fn configure_vao(vbo_id: GLuint) -> GLuint {
+    let mut vao: GLuint = 0;
+    unsafe {
+        gl::GenVertexArrays(1, &mut vao);
+
+        gl::BindVertexArray(vao);
+        gl::BindBuffer(gl::ARRAY_BUFFER, vbo_id);
+
+        // Configure the following layout:
+        //   layout (location = 0) in vec3  inPos;
+        //   layout (location = 1) in vec3  inNormal;
+        //   layout (location = 2) in vec2  inTexCoords;
+        //   layout (location = 3) in vec3  inTangent;
+        //   layout (location = 4) in vec3  inBitangent;
+        //
+        // sum of components = 14
+        // since float / f32 is used, all the values are tightly packed
+        let stride = (14 * std::mem::size_of::<f32>()) as gl::types::GLint;
+
+        // Position
+        gl::EnableVertexAttribArray(0);
+        gl::VertexAttribPointer(
+            0,
+            3, gl::FLOAT, gl::FALSE, // amount and type of data
+            stride, std::ptr::null(),
+        );
+
+        // Normal
+        gl::EnableVertexAttribArray(1);
+        gl::VertexAttribPointer(
+            1,
+            3, gl::FLOAT, gl::FALSE,
+            stride, calc_f32_offset(3),
+        );
+
+        // TexCoords
+        gl::EnableVertexAttribArray(2);
+        gl::VertexAttribPointer(
+            2,
+            2, gl::FLOAT, gl::FALSE,
+            stride, calc_f32_offset(6),
+        );
+
+        // Tangent
+        gl::EnableVertexAttribArray(3);
+        gl::VertexAttribPointer(
+            3,
+            3, gl::FLOAT, gl::FALSE,
+            stride, calc_f32_offset(8),
+        );
+
+        // Bi-Tangent
+        gl::EnableVertexAttribArray(4);
+        gl::VertexAttribPointer(
+            4,
+            3, gl::FLOAT, gl::FALSE,
+            stride, calc_f32_offset(11),
+        );
+
+        gl::BindBuffer(gl::ARRAY_BUFFER, 0);
+        gl::BindVertexArray(0);
+    }
+
+    vao
+}
+
+/// Calculates the byte-offset for the given amount of `f32`-values
+fn calc_f32_offset(amount: usize) -> *const GLvoid {
+    (amount * std::mem::size_of::<f32>()) as *const GLvoid
 }
