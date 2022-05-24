@@ -343,6 +343,11 @@ impl AppState {
             Program::from_res(res, "shaders/normal")
                 .map_err(|s| s)?);
 
+        state.available_program_names.push("Parallax-Mapping".to_string());
+        state.available_programs.push(
+            Program::from_res(res, "shaders/parallax")
+                .map_err(|s| s)?);
+
         // Init buffers
         unsafe {
             gl::GenBuffers(1, &mut state.vbo_id);
