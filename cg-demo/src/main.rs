@@ -1,22 +1,23 @@
 extern crate cgmath;
 extern crate gl;
 extern crate sdl2;
+extern crate image;
 
 use std::path::Path;
 
 use cgmath::{Matrix4, Vector3};
+use log::Level;
 use sdl2::keyboard::Keycode;
 use sdl2::video::WindowBuildError;
 use sdl2::VideoSubsystem;
 
 use resources::Resources;
 
-use crate::camera::Camera;
-use crate::camera::Direction::{BACKWARD, FORWARD, LEFT, RIGHT};
-use crate::render_gl::TextureCollection;
+use crate::glhelper::Camera;
+use crate::glhelper::MovementDirection::{BACKWARD, FORWARD, LEFT, RIGHT};
+use crate::glhelper::TextureCollection;
 
-pub mod render_gl;
-pub mod camera;
+pub mod glhelper;
 pub mod resources;
 
 const WINDOW_TITLE: &str = "Displacement Map Demo";
@@ -36,7 +37,7 @@ const SAMPLE_START_IDX: usize = 0;
 /// Function that is executed when starting the compiled program
 ///
 fn main() {
-    simple_logger::init().unwrap();
+    simple_logger::init_with_level(Level::Debug).unwrap();
 
     let sdl = sdl2::init().unwrap();
     let video_subsystem = sdl.video().unwrap();
@@ -61,7 +62,7 @@ fn main() {
 
     // Load shader
     let res = Resources::from_relative_exe_path(Path::new("resources")).unwrap();
-    let shader_program = render_gl::Program::from_res(&res, "shaders/base").unwrap();
+    let shader_program = glhelper::Program::from_res(&res, "shaders/normal").unwrap();
     shader_program.set_active();
 
     // Load texture
@@ -108,16 +109,16 @@ fn main() {
                             fill_vbo(vbo, &vertices)
                         }
                         Keycode::W | Keycode::Up => {
-                            camera.process_keyboard(FORWARD, 0.1)
+                            camera.move_camera(FORWARD, 0.1)
                         }
                         Keycode::A | Keycode::Left => {
-                            camera.process_keyboard(LEFT, 0.1)
+                            camera.move_camera(LEFT, 0.1)
                         }
                         Keycode::S | Keycode::Down => {
-                            camera.process_keyboard(BACKWARD, 0.1)
+                            camera.move_camera(BACKWARD, 0.1)
                         }
                         Keycode::D | Keycode::Right => {
-                            camera.process_keyboard(RIGHT, 0.1)
+                            camera.move_camera(RIGHT, 0.1)
                         }
                         Keycode::O | Keycode::Home => {
                             camera.reset_position()
@@ -126,8 +127,8 @@ fn main() {
                         _ => {}
                     }
                 }
-                sdl2::event::Event::MouseMotion { xrel, yrel, .. } => camera.process_mouse_move(xrel as f32, yrel as f32),
-                sdl2::event::Event::MouseWheel { y, .. } => camera.process_mouse_scroll(y as f32 / 10.0),
+                sdl2::event::Event::MouseMotion { xrel, yrel, .. } => camera.rotate_camera(xrel as f32, yrel as f32),
+                sdl2::event::Event::MouseWheel { y, .. } => camera.zoom_camera(y as f32),
                 _ => {} // do nothing for unhandled events
             }
         }
@@ -137,7 +138,7 @@ fn main() {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
 
-        let proj = build_projection_matrix(camera.zoom(), (WINDOW_WIDTH as f32) / (WINDOW_HEIGHT as f32), 0.1, 100.0).unwrap();
+        let proj = build_projection_matrix(camera.zoom().to_radians(), (WINDOW_WIDTH as f32) / (WINDOW_HEIGHT as f32), 0.1, 100.0).unwrap();
 
         shader_program.set_active();
         TextureCollection::configure_program(&shader_program);
